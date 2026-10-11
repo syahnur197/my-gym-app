@@ -13,6 +13,7 @@ import (
  "github.com/syahnur197/my-gym-app/backend/internal/database"
  "github.com/syahnur197/my-gym-app/backend/internal/repository"
  "github.com/syahnur197/my-gym-app/backend/internal/service"
+ "github.com/syahnur197/my-gym-app/backend/internal/web"
 )
 
 func main(){
@@ -25,7 +26,11 @@ func main(){
  svc:=service.New(repository.NewWorkout(db),repository.NewSession(db))
  if err:=svc.Seed(context.Background());err!=nil{log.Fatal(err)}
  port:=os.Getenv("PORT");if port==""{port="8080"}
- server:=&http.Server{Addr:":"+port,Handler:controller.New(svc,auth.New(username,password,secret)).Routes(),ReadHeaderTimeout:5*time.Second,ReadTimeout:15*time.Second,WriteTimeout:15*time.Second,IdleTimeout:60*time.Second}
+ authManager:=auth.New(username,password,secret)
+ mux:=http.NewServeMux()
+ mux.Handle("/api/",controller.New(svc,authManager).Routes())
+ web.New(svc,authManager,os.Getenv("COOKIE_SECURE")=="true").Register(mux)
+ server:=&http.Server{Addr:":"+port,Handler:mux,ReadHeaderTimeout:5*time.Second,ReadTimeout:15*time.Second,WriteTimeout:15*time.Second,IdleTimeout:60*time.Second}
  log.Printf("API listening on :%s",port)
  log.Fatal(server.ListenAndServe())
 }
