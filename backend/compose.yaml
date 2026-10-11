@@ -18,5 +18,13 @@ services:
       timeout: 5s
       retries: 3
 
+  cloudflared:
+    image: cloudflare/cloudflared@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+
 volumes:
   gym-data:
