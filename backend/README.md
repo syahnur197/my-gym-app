@@ -1,43 +1,43 @@
-# Go backend (GORM + SQLite)
+# Go backend and PWA
 
-## Structure
-- `main.go` — configuration and dependency wiring
-- `internal/model/` — GORM entities and relationships
-- `internal/database/` — connection and **GORM AutoMigrate** on startup
-- `internal/repository/` — persistence interfaces and GORM implementations
-- `internal/service/` — business rules, validation, initial workout templates, immutable session snapshots
-- `internal/controller/` — HTTP handlers and routing
-- `internal/auth/` — HMAC-signed bearer tokens
+The Go server hosts the web UI at `/` and the existing JSON API at `/api/*`.
+
+## Architecture
+- `internal/model`: GORM models
+- `internal/database`: SQLite connection and `AutoMigrate`
+- `internal/repository`: interfaces and GORM persistence implementations
+- `internal/service`: validation, defaults, immutable session snapshots
+- `internal/controller`: JSON API controllers
+- `internal/web`: server-rendered HTML controllers and PWA assets
+- `internal/auth`: signed token issuance and verification
 
 ## Start
-Install Go 1.23+ and a C compiler (the standard GORM SQLite driver uses CGO). Then:
-
 ```sh
-cd backend
 cp .env.example .env
-# Edit .env with your own APP_USERNAME, APP_PASSWORD and JWT_SECRET
+# Edit credentials in .env
 go mod tidy
 go run .
 ```
+Requires Go 1.23+ and a C compiler. GORM automatically migrates models on startup. For production, versioned migrations are safer for destructive schema changes.
 
-GORM calls `AutoMigrate` for the four tables on startup; no manual schema setup is needed. Note: AutoMigrate is additive and is not a replacement for versioned destructive migrations in production.
+## Browser routes
+- `GET /login`, `POST /login`, `POST /logout`
+- `GET /workouts`, `GET /workouts/new`, `GET /workouts/{id}/edit`
+- `POST /workouts`, `POST /workouts/{id}`, `POST /workouts/{id}/delete`
+- `POST /workouts/{id}/log`
+- `GET /calendar?month=YYYY-MM`, `GET /sessions/{id}`
+- `GET /manifest.webmanifest`, `GET /sw.js`, `GET /icon.svg`
 
-## Authentication
-`POST /api/login` with `{"username":"admin","password":"..."}` returns a signed token valid for 24 hours. All other `/api/*` endpoints except `/api/health` require `Authorization: Bearer TOKEN`. Single-user credentials are loaded from environment or `.env`, not stored in the database. Never commit `.env`.
-
-## Endpoints
+## JSON API
 - `GET /api/health`
 - `POST /api/login`
-- `GET /api/workouts`
-- `POST /api/workouts` body `{"name":"Workout D","exercises":[{"name":"Squat","sets":3,"reps":10,"weightKg":30}]}`
-- `GET /api/workouts/{id}`
-- `PUT /api/workouts/{id}` same body as POST
-- `DELETE /api/workouts/{id}`
-- `GET /api/sessions?month=2026-10` or omit month for all sessions
-- `POST /api/sessions` body `{"workoutId":1,"date":"2026-10-11","exercises":[{"name":"Bench press","sets":3,"reps":10,"weightKg":50}]}`
-- `GET /api/sessions/{id}`
+- `GET /api/workouts`, `POST /api/workouts`
+- `GET /api/workouts/{id}`, `PUT /api/workouts/{id}`, `DELETE /api/workouts/{id}`
+- `GET /api/sessions?month=YYYY-MM`, `POST /api/sessions`, `GET /api/sessions/{id}`
 
-Session exercises and workout name are copied into historical records. Editing or deleting a workout does **not** change old sessions. Sessions are intentionally read-only.
+API endpoints except health and login require a bearer token. Web routes use a signed HttpOnly cookie and CSRF-protected forms.
 
-## Security and deployment
-Use HTTPS behind a reverse proxy for remote access. Set strong credentials, restrict public access and add proxy-side rate limiting. The Android app's HTTP allowance is for local development only.
+## Caveats
+- The PWA requires network connectivity to log workouts; it has no offline sync.
+- Frontend JS/CSS dependencies use CDNs.
+- Use HTTPS and `COOKIE_SECURE=true` for production. Add login rate limiting before exposing publicly.
