@@ -1,25 +1,32 @@
 # My Gym App
 
-Offline Android workout tracker built with Kotlin and Jetpack Compose.
+Android (Kotlin + Jetpack Compose) and Go backend for tracking workouts A, B, C and custom routines.
 
 ## Features
-- Preloaded full-body templates **A**, **B**, **C**
-- Add, rename and delete workout templates
-- Add, edit and remove exercises and targets within each template
-- Log a session with actual weight, reps and sets
-- **Immutable history:** session exercises are copied into snapshot rows when saved; changing a template never changes previously logged sessions
-- Monthly calendar with workout-day indicators; tap a date to inspect its sessions
-- All data stored locally using Android SQLite
+- Login using a single account configured in the Go server's `.env`
+- Preloaded workout templates A/B/C
+- Create, edit and delete workouts; add, edit and remove exercises
+- Log a workout and browse historical sessions on a month calendar
+- **Historical sessions are immutable snapshots.** Editing or deleting a workout template cannot change completed session logs.
+- SQLite database on the backend, not on the phone
 
-## Run
-Open this repository in Android Studio, use JDK 17, sync Gradle and run the `app` configuration on an Android 8+ device/emulator. An internet connection is only required for initial dependency download.
+## Backend setup
+1. Install Go 1.23+.
+2. `cd backend && cp .env.example .env`
+3. Edit `.env`: set `APP_USERNAME`, a strong `APP_PASSWORD` (12+ characters), and `JWT_SECRET` (32+ random characters).
+4. `go mod tidy && go run .`
+5. The server starts on port 8080 by default. See [backend/README.md](backend/README.md) for endpoints.
+
+## Android setup
+1. Open the repository in Android Studio with JDK 17 and Android SDK 35 installed.
+2. Sync Gradle and run the `app` configuration on an Android 8+ emulator/device.
+3. Enter server URL on the sign-in screen: `http://10.0.2.2:8080` for an Android emulator connecting to your development machine. On a physical phone, use your computer's reachable LAN IP (for example `http://192.168.1.10:8080`).
+4. Sign in with the credentials from the backend `.env`.
+
+**Security:** Development builds permit HTTP for local testing. For production, deploy the Go API behind HTTPS, disable cleartext traffic in the Android manifest, and use an HTTPS URL. Never commit `.env`, use a public demo password, or expose the API publicly over plain HTTP.
 
 ## Weight convention
-For exercises using two dumbbells, weights are **combined kilograms**. For single-arm exercises, weight is for **one dumbbell**. Exercise notes can clarify this.
+Paired-dumbbell weights are combined kg; single-arm exercises use one dumbbell's kg.
 
-## Data model
-`templates` -> `template_exercises` defines editable plans.
-`sessions` -> `session_exercises` stores a permanent copy of each completed session, including exercise names, target sets/reps, performed sets/reps and weight. No foreign key from session exercises to mutable template exercises.
-
-## Limitations
-Local-only MVP; no cloud sync or data export yet. Calendar dates use the device's local date. A saved session is read-only to protect its original log.
+## MVP limitations
+This is an initial implementation, not yet verified with a CI Android/Go build. The Android editor supports template editing and quick logging of its current targets; it does not yet provide a separate per-set logging screen. Sessions are read-only by design, and login tokens are kept in memory (sign in again after app restart).
