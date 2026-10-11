@@ -1,12 +1,12 @@
 # My Gym — Go PWA
 
-A lightweight workout tracker for A/B/C and custom routines. **Go serves both the backend and the server-rendered frontend.** No React, Vue, Next.js, or Android build.
+A lightweight, single-user workout tracker. **Go serves the server-rendered application directly**: no React, Vue, Next.js, mobile build, or separate API.
 
 ## Stack
 - **Go 1.23+**, standard `net/http` routing and `html/template`
 - **GORM + SQLite** with startup AutoMigrate
-- Repository, service, controller layers for JSON API
-- Server-rendered HTML with **HTMX**, **Alpine.js**, **Tailwind CSS**
+- Repository and service layers for persistence and validation
+- Server-rendered HTML with **Alpine.js** and **Tailwind CSS**
 - Web app manifest and service worker for PWA installation
 - Single-user authentication configured via local `.env`; signed, HttpOnly session cookie
 
@@ -18,23 +18,23 @@ cp .env.example .env
 go mod tidy
 go run .
 ```
+
 Open **http://localhost:8080** and sign in. A C compiler is needed for the GORM SQLite driver.
 
 ## Features
-- Seeded Workout A, B, C templates
-- Create, rename, edit and delete workouts and their exercises
-- Log a session with a single click using the template's current values
-- Monthly calendar of completed sessions; inspect historical exercise details
-- **Immutable history**: session exercises and workout names are copied into separate tables. Editing/deleting a template cannot change previous logs.
-- Go JSON API retained under `/api/*`
-
-## PWA details
-The manifest and service worker make the app installable on supported browsers. **Logging requires network access to the Go server.** The current service worker caches only the app manifest and icon; it does not offer offline data entry or synchronization. HTMX, Alpine and Tailwind are loaded from CDNs, so an internet connection is required for first load and the UI isn't fully offline capable.
+- Workout templates contain ordered exercises only—no prescribed sets, reps or weights.
+- Edit workout templates and log a workout on any date.
+- Record each completed set independently, including its own weight and reps.
+- A calendar exposes completed sessions by date.
+- Exercise history retains completed sets grouped by session date.
+- **Immutable history**: workout name and exercises are copied into session tables. Editing or deleting a template cannot change prior logs.
 
 ## Security
-Use HTTPS for remote access. Set `COOKIE_SECURE=true` in production (behind a TLS-terminating reverse proxy). Do not commit `.env`. Cookie-based web forms use a CSRF token; API endpoints continue to use bearer tokens. For public deployment, add login rate limiting and a hardened reverse proxy.
+Use HTTPS for remote access. Set `COOKIE_SECURE=true` in production. Do not commit `.env`. Cookie-based forms use a CSRF token. For public deployment, add login rate limiting and a hardened reverse proxy.
+
+## PWA details
+The manifest and service worker make the app installable on supported browsers. Logging requires network access. The service worker caches only the manifest and icon; it does not offer offline data entry or synchronization. Alpine and Tailwind are loaded from CDNs, so an internet connection is required for first load.
 
 ## Notes
 - Paired dumbbell weights are **combined kg**; one-arm exercise weights refer to one dumbbell.
-- This is an MVP. Logging currently snapshots the template; a per-set performance editor and offline sync are not yet implemented.
-- Code has been pushed but has **not been locally compiled or browser-tested** in this environment.
+- The app intentionally has no standalone JSON API. Keep browser behaviour in the server-rendered handlers unless a real external client is introduced.

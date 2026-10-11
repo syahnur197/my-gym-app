@@ -20,6 +20,7 @@ type WorkoutRepository interface {
 type SessionRepository interface {
 	List(context.Context, string) ([]model.Session, error)
 	Find(context.Context, uint) (model.Session, error)
+	HistoryForExercise(context.Context, string) ([]model.Session, error)
 	Create(context.Context, *model.Session) error
 }
 type GormWorkoutRepository struct{ db *gorm.DB }
@@ -91,7 +92,10 @@ func (r *GormWorkoutRepository) Delete(ctx context.Context, id uint) error {
 }
 func (r *GormSessionRepository) List(ctx context.Context, month string) ([]model.Session, error) {
 	var out []model.Session
-	q := r.db.WithContext(ctx).Preload("Exercises", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).Order("date DESC, id DESC")
+	q := r.db.WithContext(ctx).
+		Preload("Exercises", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).
+		Preload("Exercises.Sets", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).
+		Order("date DESC, id DESC")
 	if month != "" {
 		q = q.Where("date >= ? AND date < ?", month+"-01", nextMonth(month))
 	}
@@ -111,9 +115,24 @@ func nextMonth(month string) string {
 }
 func fmtSscanfMonth(s string, y, m *int) { _, _ = fmt.Sscanf(s, "%d-%d", y, m) }
 func fmtMonth(y, m int) string           { return fmt.Sprintf("%04d-%02d", y, m) }
+func (r *GormSessionRepository) HistoryForExercise(ctx context.Context, name string) ([]model.Session, error) {
+	var sessions []model.Session
+	err := r.db.WithContext(ctx).
+		Joins("JOIN session_exercises ON session_exercises.session_id = sessions.id").
+		Where("session_exercises.name = ?", name).
+		Preload("Exercises", "name = ?", name).
+		Preload("Exercises.Sets", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).
+		Order("sessions.date DESC, sessions.id DESC").
+		Find(&sessions).Error
+	return sessions, err
+}
+
 func (r *GormSessionRepository) Find(ctx context.Context, id uint) (model.Session, error) {
 	var s model.Session
-	err := r.db.WithContext(ctx).Preload("Exercises", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).First(&s, id).Error
+	err := r.db.WithContext(ctx).
+		Preload("Exercises", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).
+		Preload("Exercises.Sets", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).
+		First(&s, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return s, ErrNotFound
 	}
@@ -122,8 +141,11 @@ func (r *GormSessionRepository) Find(ctx context.Context, id uint) (model.Sessio
 func (r *GormSessionRepository) Create(ctx context.Context, s *model.Session) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Persist snapshots only; never write template exercises here.
-		for i := range s.Exercises {
-			s.Exercises[i].Position = i
+		for exerciseIndex := range s.Exercises {
+			s.Exercises[exerciseIndex].Position = exerciseIndex
+			for setIndex := range s.Exercises[exerciseIndex].Sets {
+				s.Exercises[exerciseIndex].Sets[setIndex].Position = setIndex
+			}
 		}
 		return tx.Create(s).Error
 	})

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,10 @@ type Handler struct {
 
 func New(s *service.Service, a *auth.Manager, secure bool) *Handler { return &Handler{s, a, secure} }
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	})
 	mux.HandleFunc("GET /", h.home)
 	mux.HandleFunc("GET /login", h.loginPage)
 	mux.HandleFunc("POST /login", h.login)
@@ -34,7 +39,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /workouts", h.protect(h.saveWorkout))
 	mux.HandleFunc("POST /workouts/{id}", h.protect(h.saveWorkout))
 	mux.HandleFunc("POST /workouts/{id}/delete", h.protect(h.deleteWorkout))
+	mux.HandleFunc("GET /workouts/{id}/log", h.protect(h.logEditor))
 	mux.HandleFunc("POST /workouts/{id}/log", h.protect(h.logWorkout))
+	mux.HandleFunc("GET /exercises/history", h.protect(h.exerciseHistory))
 	mux.HandleFunc("GET /calendar", h.protect(h.calendar))
 	mux.HandleFunc("GET /sessions/{id}", h.protect(h.session))
 	mux.HandleFunc("GET /manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
@@ -140,9 +147,9 @@ func (h *Handler) workouts(w http.ResponseWriter, r *http.Request) {
 	for _, p := range plans {
 		fmt.Fprintf(&b, `<article class="card"><div class="flex justify-between items-start"><h2 class="text-xl font-semibold">%s</h2><a class="link" href="/workouts/%d/edit">Edit</a></div><ul class="mt-3 space-y-1 text-slate-600">`, esc(p.Name), p.ID)
 		for _, e := range p.Exercises {
-			fmt.Fprintf(&b, "<li>%s — %d × %d · %g kg</li>", esc(e.Name), e.Sets, e.Reps, e.WeightKg)
+			fmt.Fprintf(&b, "<li>%s</li>", esc(e.Name))
 		}
-		fmt.Fprintf(&b, `</ul><div class="flex gap-2 mt-5 flex-wrap"><form method="post" action="/workouts/%d/log"><input type="hidden" name="_csrf" value="%s"><button class="btn">Log today</button></form><form method="post" action="/workouts/%d/delete" onsubmit="return confirm('Delete this workout template? History will be preserved.')"><input type="hidden" name="_csrf" value="%s"><button class="btn-secondary">Delete</button></form></div></article>`, p.ID, csrf, p.ID, csrf)
+		fmt.Fprintf(&b, `</ul><div class="flex gap-2 mt-5 flex-wrap"><a class="btn" href="/workouts/%d/log">Start workout</a><form method="post" action="/workouts/%d/delete" onsubmit="return confirm('Delete this workout template? History will be preserved.')"><input type="hidden" name="_csrf" value="%s"><button class="btn-secondary">Delete</button></form></div></article>`, p.ID, p.ID, csrf)
 	}
 	b.WriteString("</div>")
 	h.render(w, r, "Workouts", template.HTML(b.String()))
@@ -174,7 +181,7 @@ func (h *Handler) editor(w http.ResponseWriter, r *http.Request) {
 	if p.ID != 0 {
 		action = fmt.Sprintf("/workouts/%d", p.ID)
 	}
-	fmt.Fprintf(&b, `<h1 class="text-2xl font-bold mb-5">%s</h1><form method="post" action="%s" class="card space-y-4" x-data="editor(JSON.parse(atob('%s')))"><input type="hidden" name="_csrf" value="%s"><label class="block">Workout name<input name="name" required maxlength="100" value="%s" class="field"></label><template x-for="(e,i) in exercises" :key="e.key"><div class="rounded-xl border p-3 space-y-2"><div class="flex justify-between"><strong x-text="'Exercise '+(i+1)"></strong><button type="button" class="link" @click="exercises.splice(i,1)">Remove</button></div><label>Exercise name<input required maxlength="150" class="field" :name="'exercise_name_'+i" x-model="e.name"></label><div class="grid grid-cols-3 gap-2"><label>Sets<input required type="number" min="1" max="100" class="field" :name="'sets_'+i" x-model.number="e.sets"></label><label>Reps<input required type="number" min="0" max="10000" class="field" :name="'reps_'+i" x-model.number="e.reps"></label><label>Weight (kg)<input required type="number" min="0" max="10000" step="0.01" class="field" :name="'weight_'+i" x-model.number="e.weightKg"></label></div></div></template><input type="hidden" name="count" :value="exercises.length"><button type="button" class="btn-secondary" @click="add()">+ Add exercise</button><div class="flex gap-3"><button class="btn">Save workout</button><a href="/workouts" class="btn-secondary">Cancel</a></div></form>`, map[bool]string{true: "Edit workout", false: "New workout"}[p.ID != 0], action, base64.StdEncoding.EncodeToString(raw), h.csrf(w, r), esc(p.Name))
+	fmt.Fprintf(&b, `<h1 class="text-2xl font-bold mb-5">%s</h1><p class="text-slate-600 mb-4">Templates contain exercises only. Record sets, reps and weights when you train.</p><form method="post" action="%s" class="card space-y-4" x-data="editor(JSON.parse(atob('%s')))"><input type="hidden" name="_csrf" value="%s"><label class="block">Workout name<input name="name" required maxlength="100" value="%s" class="field"></label><template x-for="(e,i) in exercises" :key="e.key"><div class="rounded-xl border p-3 space-y-2"><div class="flex justify-between"><strong x-text="'Exercise '+(i+1)"></strong><button type="button" class="link" @click="exercises.splice(i,1)">Remove</button></div><label>Exercise name<input required maxlength="150" class="field" :name="'exercise_name_'+i" x-model="e.name"></label></div></template><input type="hidden" name="count" :value="exercises.length"><button type="button" class="btn-secondary" @click="add()">+ Add exercise</button><div class="flex gap-3"><button class="btn">Save workout</button><a href="/workouts" class="btn-secondary">Cancel</a></div></form>`, map[bool]string{true: "Edit workout", false: "New workout"}[p.ID != 0], action, base64.StdEncoding.EncodeToString(raw), h.csrf(w, r), esc(p.Name))
 	h.render(w, r, "Edit workout", template.HTML(b.String()))
 }
 func (h *Handler) saveWorkout(w http.ResponseWriter, r *http.Request) {
@@ -196,14 +203,7 @@ func (h *Handler) saveWorkout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for i := 0; i < n; i++ {
-		sets, e1 := strconv.Atoi(r.FormValue(fmt.Sprintf("sets_%d", i)))
-		reps, e2 := strconv.Atoi(r.FormValue(fmt.Sprintf("reps_%d", i)))
-		weight, e3 := strconv.ParseFloat(r.FormValue(fmt.Sprintf("weight_%d", i)), 64)
-		if e1 != nil || e2 != nil || e3 != nil {
-			http.Error(w, "invalid exercise values", 400)
-			return
-		}
-		p.Exercises = append(p.Exercises, model.WorkoutExercise{Name: r.FormValue(fmt.Sprintf("exercise_name_%d", i)), Sets: sets, Reps: reps, WeightKg: weight})
+		p.Exercises = append(p.Exercises, model.WorkoutExercise{Name: r.FormValue(fmt.Sprintf("exercise_name_%d", i))})
 	}
 	if err := h.svc.SaveWorkout(r.Context(), &p); err != nil {
 		http.Error(w, "invalid workout", 400)
@@ -223,18 +223,68 @@ func (h *Handler) deleteWorkout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "/workouts", 303)
 }
+func (h *Handler) logEditor(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	workout, err := h.svc.Workouts.Find(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<a href="/workouts" class="link">← Workouts</a><h1 class="text-2xl font-bold mt-4">%s</h1><p class="text-slate-600 mb-4">Log each set as you complete it.</p><form method="post" action="/workouts/%d/log" class="space-y-4" x-data="workoutLogger(JSON.parse(atob('%s')))"><input type="hidden" name="_csrf" value="%s"><label class="block max-w-xs">Date<input type="date" name="date" value="%s" class="field"></label><template x-for="(exercise, exerciseIndex) in exercises" :key="exercise.key"><section class="card"><div class="flex justify-between gap-3"><h2 class="text-lg font-semibold" x-text="exercise.name"></h2><a class="link text-sm" :href="'/exercises/history?name='+encodeURIComponent(exercise.name)">History</a></div><input type="hidden" :name="'exercise_name_'+exerciseIndex" :value="exercise.name"><template x-for="(set, setIndex) in exercise.sets" :key="set.key"><div class="grid grid-cols-[2.5rem_1fr_1fr_auto] gap-2 items-end mt-3"><span class="text-slate-500 font-medium pb-2" x-text="setIndex+1"></span><label>kg<input type="number" min="0" max="10000" step="0.01" required class="field" :name="'weight_'+exerciseIndex+'_'+setIndex" x-model.number="set.weightKg"></label><label>reps<input type="number" min="0" max="10000" required class="field" :name="'reps_'+exerciseIndex+'_'+setIndex" x-model.number="set.reps"></label><button type="button" class="link pb-2" @click="exercise.sets.splice(setIndex,1)" :disabled="exercise.sets.length===1">Remove</button></div></template><input type="hidden" :name="'set_count_'+exerciseIndex" :value="exercise.sets.length"><button type="button" class="btn-secondary mt-4" @click="addSet(exercise)">+ Add set</button></section></template><input type="hidden" name="exercise_count" :value="exercises.length"><button class="btn w-full">Save workout</button></form>`, esc(workout.Name), workout.ID, base64.StdEncoding.EncodeToString(mustJSON(workout.Exercises)), h.csrf(w, r), time.Now().Format("2006-01-02"))
+	h.render(w, r, "Log workout", template.HTML(b.String()))
+}
+
+func mustJSON(value any) []byte {
+	data, _ := json.Marshal(value)
+	return data
+}
+
 func (h *Handler) logWorkout(w http.ResponseWriter, r *http.Request) {
-	id, e := parseID(r)
-	if e != nil {
-		http.Error(w, "invalid ID", 400)
+	id, err := parseID(r)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
 		return
 	}
-	_, e = h.svc.Log(r.Context(), id, time.Now().Format("2006-01-02"), nil)
-	if e != nil {
-		http.Error(w, "log failed", 500)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	http.Redirect(w, r, "/calendar", 303)
+	count, err := strconv.Atoi(r.FormValue("exercise_count"))
+	if err != nil || count < 1 || count > 100 {
+		http.Error(w, "invalid exercise count", http.StatusBadRequest)
+		return
+	}
+	exercises := make([]model.SessionExercise, 0, count)
+	for exerciseIndex := 0; exerciseIndex < count; exerciseIndex++ {
+		setCount, err := strconv.Atoi(r.FormValue(fmt.Sprintf("set_count_%d", exerciseIndex)))
+		if err != nil || setCount < 1 || setCount > 100 {
+			http.Error(w, "invalid set count", http.StatusBadRequest)
+			return
+		}
+		name := r.FormValue(fmt.Sprintf("exercise_name_%d", exerciseIndex))
+		sets := make([]model.SessionSet, 0, setCount)
+		for setIndex := 0; setIndex < setCount; setIndex++ {
+			weight, weightErr := strconv.ParseFloat(r.FormValue(fmt.Sprintf("weight_%d_%d", exerciseIndex, setIndex)), 64)
+			reps, repsErr := strconv.Atoi(r.FormValue(fmt.Sprintf("reps_%d_%d", exerciseIndex, setIndex)))
+			if weightErr != nil || repsErr != nil {
+				http.Error(w, "invalid set", http.StatusBadRequest)
+				return
+			}
+			sets = append(sets, model.SessionSet{WeightKg: weight, Reps: reps})
+		}
+		exercises = append(exercises, model.SessionExercise{Name: name, Sets: sets})
+	}
+	if _, err := h.svc.Log(r.Context(), id, r.FormValue("date"), exercises); err != nil {
+		http.Error(w, "could not save workout", http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/calendar?date="+r.FormValue("date"), http.StatusSeeOther)
 }
 func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 	month := r.URL.Query().Get("month")
@@ -287,6 +337,32 @@ func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("</section>")
 	h.render(w, r, "Calendar", template.HTML(b.String()))
 }
+func (h *Handler) exerciseHistory(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	sessions, err := h.svc.ExerciseHistory(r.Context(), name)
+	if err != nil {
+		http.Error(w, "invalid exercise", http.StatusBadRequest)
+		return
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<a href="/calendar" class="link">← Calendar</a><h1 class="text-2xl font-bold mt-4">%s history</h1>`, esc(name))
+	if len(sessions) == 0 {
+		b.WriteString(`<p class="text-slate-500 mt-4">No logged sets yet.</p>`)
+	}
+	for _, session := range sessions {
+		if len(session.Exercises) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, `<article class="card mt-4"><div class="flex justify-between gap-3"><h2 class="font-semibold">%s</h2><a class="link text-sm" href="/sessions/%d">View session</a></div><ol class="mt-3 space-y-1 text-slate-600">`, esc(session.Date), session.ID)
+		for _, set := range session.Exercises[0].Sets {
+			fmt.Fprintf(&b, `<li>Set %d — %g kg × %d reps</li>`, set.Position+1, set.WeightKg, set.Reps)
+		}
+		b.WriteString(`</ol></article>`)
+	}
+	h.render(w, r, "Exercise history", template.HTML(b.String()))
+}
+
 func (h *Handler) session(w http.ResponseWriter, r *http.Request) {
 	id, e := parseID(r)
 	if e != nil {
@@ -300,14 +376,18 @@ func (h *Handler) session(w http.ResponseWriter, r *http.Request) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `<a href="/calendar" class="link">← Calendar</a><article class="card mt-4"><h1 class="text-2xl font-bold">%s</h1><p class="text-slate-500">%s · Saved snapshot</p><ul class="mt-4 space-y-3">`, esc(s.WorkoutName), esc(s.Date))
-	for _, x := range s.Exercises {
-		fmt.Fprintf(&b, "<li>%s — %d × %d @ %g kg</li>", esc(x.Name), x.Sets, x.Reps, x.WeightKg)
+	for _, exercise := range s.Exercises {
+		fmt.Fprintf(&b, `<li class="border-t pt-3"><div class="flex justify-between gap-3"><strong>%s</strong><a class="link text-sm" href="/exercises/history?name=%s">History</a></div><ol class="mt-2 space-y-1 text-slate-600">`, esc(exercise.Name), url.QueryEscape(exercise.Name))
+		for _, set := range exercise.Sets {
+			fmt.Fprintf(&b, "<li>Set %d — %g kg × %d reps</li>", set.Position+1, set.WeightKg, set.Reps)
+		}
+		b.WriteString("</ol></li>")
 	}
 	b.WriteString("</ul></article>")
 	h.render(w, r, "Session", template.HTML(b.String()))
 }
 
-var page = template.Must(template.New("page").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#4338ca"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg"><title>{{.Title}} · My Gym</title><script src="https://cdn.tailwindcss.com"></script><script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script><script src="https://unpkg.com/htmx.org@2.0.4"></script><style type="text/tailwindcss">@layer components{.btn{@apply inline-flex items-center justify-center rounded-xl bg-indigo-700 text-white px-4 py-2 font-medium hover:bg-indigo-800}.btn-secondary{@apply inline-flex items-center justify-center rounded-xl bg-slate-100 text-slate-800 px-4 py-2 font-medium hover:bg-slate-200}.card{@apply bg-white rounded-2xl border border-slate-200 p-5 shadow-sm}.field{@apply mt-1 block w-full border border-slate-300 rounded-lg px-3 py-2}.link{@apply text-indigo-700 font-medium}}</style><script>function editor(initial){return {exercises:initial.map((e,i)=>({...e,key:i})),nextKey:initial.length,add(){this.exercises.push({key:this.nextKey++,name:'',sets:3,reps:10,weightKg:0})}}}if('serviceWorker'in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js'))}</script></head><body class="bg-slate-50 min-h-screen text-slate-900"><header class="bg-white border-b"><nav class="max-w-4xl mx-auto p-4 flex items-center justify-between gap-3"><a href="/workouts" class="font-bold text-xl text-indigo-700">My Gym</a>{{if .LoggedIn}}<div class="flex items-center gap-3"><a href="/workouts" class="link" hx-boost="true">Workouts</a><a href="/calendar" class="link" hx-boost="true">Calendar</a><form method="post" action="/logout"><input type="hidden" name="_csrf" value="{{.CSRF}}"><button class="text-sm text-slate-500">Sign out</button></form></div>{{end}}</nav></header><main class="max-w-4xl mx-auto p-4 md:p-8">{{.Body}}</main></body></html>`))
+var page = template.Must(template.New("page").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#4338ca"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg"><title>{{.Title}} · My Gym</title><script src="https://cdn.tailwindcss.com"></script><script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script><script src="https://unpkg.com/htmx.org@2.0.4"></script><style type="text/tailwindcss">@layer components{.btn{@apply inline-flex items-center justify-center rounded-xl bg-indigo-700 text-white px-4 py-2 font-medium hover:bg-indigo-800}.btn-secondary{@apply inline-flex items-center justify-center rounded-xl bg-slate-100 text-slate-800 px-4 py-2 font-medium hover:bg-slate-200}.card{@apply bg-white rounded-2xl border border-slate-200 p-5 shadow-sm}.field{@apply mt-1 block w-full border border-slate-300 rounded-lg px-3 py-2}.link{@apply text-indigo-700 font-medium}}</style><script>function editor(initial){return {exercises:initial.map((e,i)=>({name:e.name,key:i})),nextKey:initial.length,add(){this.exercises.push({key:this.nextKey++,name:''})}}}function workoutLogger(initial){let key=0;return {exercises:initial.map(e=>({name:e.name,key:key++,sets:[{key:key++,weightKg:0,reps:0}]})),addSet(exercise){exercise.sets.push({key:key++,weightKg:0,reps:0})}}}if('serviceWorker'in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js'))}</script></head><body class="bg-slate-50 min-h-screen text-slate-900"><header class="bg-white border-b"><nav class="max-w-4xl mx-auto p-4 flex items-center justify-between gap-3"><a href="/workouts" class="font-bold text-xl text-indigo-700">My Gym</a>{{if .LoggedIn}}<div class="flex items-center gap-3"><a href="/workouts" class="link" hx-boost="true">Workouts</a><a href="/calendar" class="link" hx-boost="true">Calendar</a><form method="post" action="/logout"><input type="hidden" name="_csrf" value="{{.CSRF}}"><button class="text-sm text-slate-500">Sign out</button></form></div>{{end}}</nav></header><main class="max-w-4xl mx-auto p-4 md:p-8">{{.Body}}</main></body></html>`))
 
 const manifest = `{"name":"My Gym","short_name":"My Gym","start_url":"/workouts","scope":"/","display":"standalone","background_color":"#f8fafc","theme_color":"#4338ca","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}`
 const serviceWorker = `const CACHE='gym-shell-v1';const ASSETS=['/icon.svg','/manifest.webmanifest'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))));self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.method!=='GET')return;if(u.origin!==self.location.origin)return;if(ASSETS.includes(u.pathname))e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));});`

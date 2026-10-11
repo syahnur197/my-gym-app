@@ -21,7 +21,13 @@ func Open(path string) (*gorm.DB, error) {
 	if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&model.Workout{}, &model.WorkoutExercise{}, &model.Session{}, &model.SessionExercise{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.Workout{},
+		&model.WorkoutExercise{},
+		&model.Session{},
+		&model.SessionExercise{},
+		&model.SessionSet{},
+	); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 	return db, nil

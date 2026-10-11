@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/syahnur197/my-gym-app/backend/internal/auth"
-	"github.com/syahnur197/my-gym-app/backend/internal/controller"
 	"github.com/syahnur197/my-gym-app/backend/internal/database"
 	"github.com/syahnur197/my-gym-app/backend/internal/repository"
 	"github.com/syahnur197/my-gym-app/backend/internal/service"
@@ -47,17 +46,8 @@ func main() {
 	webMux := http.NewServeMux()
 	web.New(svc, authManager, os.Getenv("COOKIE_SECURE") == "true").Register(webMux)
 
-	api := http.StripPrefix("/api", controller.New(svc, authManager).Routes())
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			api.ServeHTTP(w, r)
-			return
-		}
-		webMux.ServeHTTP(w, r)
-	})
-
-	server := &http.Server{Addr: ":" + port, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
-	log.Printf("API listening on :%s", port)
+	server := &http.Server{Addr: ":" + port, Handler: webMux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	log.Printf("My Gym listening on :%s", port)
 	log.Fatal(server.ListenAndServe())
 }
 func loadEnv(path string) {
