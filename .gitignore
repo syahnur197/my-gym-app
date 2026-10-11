@@ -4,3 +4,8 @@ local.properties
 build/
 **/build/
 *.iml
+.env
+**/.env
+*.db
+*.db-shm
+*.db-wal
