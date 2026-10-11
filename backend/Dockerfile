@@ -1,11 +1,15 @@
-FROM golang:1.23 AS build
+FROM golang:1.23-bookworm AS build
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
 COPY . .
-RUN go mod download && CGO_ENABLED=0 go build -o /gym-server .
-FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /gym-server /gym-server
+RUN CGO_ENABLED=1 go build -trimpath -o /gym-server .
+
+FROM debian:bookworm-slim
+RUN useradd --system --uid 10001 --create-home gym && mkdir -p /data && chown gym:gym /data
+COPY --from=build /gym-server /usr/local/bin/gym-server
+USER gym
 WORKDIR /data
 ENV DATABASE_PATH=/data/gym.db PORT=8080
 EXPOSE 8080
-ENTRYPOINT ["/gym-server"]
+ENTRYPOINT ["/usr/local/bin/gym-server"]
