@@ -1,20 +1,31 @@
-# Go API
+# Go backend (GORM + SQLite)
+
+## Structure
+- `main.go` — configuration and dependency wiring
+- `internal/model/` — GORM entities and relationships
+- `internal/database/` — connection and **GORM AutoMigrate** on startup
+- `internal/repository/` — persistence interfaces and GORM implementations
+- `internal/service/` — business rules, validation, initial workout templates, immutable session snapshots
+- `internal/controller/` — HTTP handlers and routing
+- `internal/auth/` — HMAC-signed bearer tokens
 
 ## Start
-Copy `.env.example` to `.env`, set a strong `APP_PASSWORD` and a random `JWT_SECRET` (32+ characters), then:
+Install Go 1.23+ and a C compiler (the standard GORM SQLite driver uses CGO). Then:
 
-```bash
+```sh
 cd backend
+cp .env.example .env
+# Edit .env with your own APP_USERNAME, APP_PASSWORD and JWT_SECRET
 go mod tidy
 go run .
 ```
 
-The server reads `.env` from the working directory without external dotenv dependencies. Environment variables override file values. `.env` is ignored by Git.
+GORM calls `AutoMigrate` for the four tables on startup; no manual schema setup is needed. Note: AutoMigrate is additive and is not a replacement for versioned destructive migrations in production.
 
 ## Authentication
-`POST /api/login` with `{"username":"admin","password":"..."}`. The response contains a signed bearer token valid for 24 hours. All other `/api/*` endpoints except `/api/health` require `Authorization: Bearer TOKEN`. Credentials are compared in constant time and never returned by the API. Use HTTPS in production; never expose this server directly over public HTTP.
+`POST /api/login` with `{"username":"admin","password":"..."}` returns a signed token valid for 24 hours. All other `/api/*` endpoints except `/api/health` require `Authorization: Bearer TOKEN`. Single-user credentials are loaded from environment or `.env`, not stored in the database. Never commit `.env`.
 
-## API
+## Endpoints
 - `GET /api/health`
 - `POST /api/login`
 - `GET /api/workouts`
@@ -22,13 +33,11 @@ The server reads `.env` from the working directory without external dotenv depen
 - `GET /api/workouts/{id}`
 - `PUT /api/workouts/{id}` same body as POST
 - `DELETE /api/workouts/{id}`
-- `GET /api/sessions?month=2026-10` or without month for all
+- `GET /api/sessions?month=2026-10` or omit month for all sessions
 - `POST /api/sessions` body `{"workoutId":1,"date":"2026-10-11","exercises":[{"name":"Bench press","sets":3,"reps":10,"weightKg":50}]}`
 - `GET /api/sessions/{id}`
 
-Editing/deleting a workout never changes session history: sessions persist their own immutable exercise snapshots. Session POST accepts recorded exercise details (if omitted, it snapshots the current template). Session history is read-only. Local SQLite persists data at `DATABASE_PATH`.
+Session exercises and workout name are copied into historical records. Editing or deleting a workout does **not** change old sessions. Sessions are intentionally read-only.
 
-## Notes
-- Single-user MVP: credentials are provisioned through environment variables, not stored in SQLite.
-- A reverse proxy with TLS is required for remote access. Configure firewall and rate limiting before deploying publicly.
-- CORS is not enabled; native Android HTTP clients do not require it.
+## Security and deployment
+Use HTTPS behind a reverse proxy for remote access. Set strong credentials, restrict public access and add proxy-side rate limiting. The Android app's HTTP allowance is for local development only.
