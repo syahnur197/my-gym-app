@@ -73,7 +73,7 @@ func validSessionExercises(exercises []model.SessionExercise) bool {
 		return false
 	}
 	for _, exercise := range exercises {
-		if strings.TrimSpace(exercise.Name) == "" || len(exercise.Name) > 150 || len(exercise.Sets) == 0 || len(exercise.Sets) > 100 {
+		if strings.TrimSpace(exercise.Name) == "" || len(exercise.Name) > 150 || len(exercise.Sets) > 100 {
 			return false
 		}
 		for _, set := range exercise.Sets {
