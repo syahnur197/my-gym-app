@@ -287,55 +287,96 @@ func (h *Handler) logWorkout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/calendar?date="+r.FormValue("date"), http.StatusSeeOther)
 }
 func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
-	month := r.URL.Query().Get("month")
-	if month == "" {
-		month = time.Now().Format("2006-01")
+	selectedDate := r.URL.Query().Get("date")
+	if selectedDate != "" {
+		parsed, err := time.Parse("2006-01-02", selectedDate)
+		if err != nil || parsed.Format("2006-01-02") != selectedDate {
+			http.Error(w, "invalid date", http.StatusBadRequest)
+			return
+		}
 	}
-	start, e := time.Parse("2006-01", month)
-	if e != nil || start.Format("2006-01") != month {
-		http.Error(w, "invalid month", 400)
-		return
+
+	currentMonth := time.Now().Truncate(24 * time.Hour)
+	if selectedDate != "" {
+		currentMonth, _ = time.Parse("2006-01-02", selectedDate)
 	}
-	logs, e := h.svc.Sessions.List(r.Context(), month)
-	if e != nil {
-		http.Error(w, "database error", 500)
-		return
-	}
+	firstMonth := time.Date(currentMonth.Year(), currentMonth.Month(), 1, 0, 0, 0, 0, time.Local).AddDate(0, -2, 0)
 	byDate := map[string][]model.Session{}
-	for _, s := range logs {
-		byDate[s.Date] = append(byDate[s.Date], s)
+	for month := firstMonth; month.Before(firstMonth.AddDate(0, 6, 0)); month = month.AddDate(0, 1, 0) {
+		sessions, err := h.svc.Sessions.List(r.Context(), month.Format("2006-01"))
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		for _, session := range sessions {
+			byDate[session.Date] = append(byDate[session.Date], session)
+		}
 	}
+
 	var b strings.Builder
-	fmt.Fprintf(&b, `<div class="flex items-center justify-between mb-5"><a class="btn-secondary" href="/calendar?month=%s">←</a><h1 class="text-xl font-bold">%s</h1><a class="btn-secondary" href="/calendar?month=%s">→</a></div><div class="grid grid-cols-7 gap-1 text-center">`, start.AddDate(0, -1, 0).Format("2006-01"), start.Format("January 2006"), start.AddDate(0, 1, 0).Format("2006-01"))
-	for _, day := range []string{"M", "T", "W", "T", "F", "S", "S"} {
-		fmt.Fprintf(&b, `<div class="text-slate-500 font-semibold py-2">%s</div>`, day)
+	b.WriteString(`<div class="mb-5"><h1 class="text-2xl font-bold">Calendar</h1><p class="text-slate-500 mt-1">Tap a marked day to review that workout.</p></div><div class="space-y-9">`)
+	for month := firstMonth; month.Before(firstMonth.AddDate(0, 6, 0)); month = month.AddDate(0, 1, 0) {
+		writeCalendarMonth(&b, month, byDate, selectedDate)
 	}
-	offset := (int(start.Weekday()) + 6) % 7
-	for i := 0; i < offset; i++ {
-		b.WriteString("<div></div>")
-	}
-	for d := start; d.Month() == start.Month(); d = d.AddDate(0, 0, 1) {
-		key := d.Format("2006-01-02")
-		n := len(byDate[key])
-		style := "bg-white"
-		if n > 0 {
-			style = "bg-indigo-100 border-indigo-300"
+	b.WriteString(`</div>`)
+	if selectedDate != "" {
+		selectedSessions := byDate[selectedDate]
+		fmt.Fprintf(&b, `<div class="fixed inset-0 z-50 bg-slate-950/50 flex items-end sm:items-center justify-center p-3"><section role="dialog" aria-modal="true" aria-labelledby="day-summary-title" class="bg-white w-full max-w-md rounded-2xl shadow-xl max-h-[85vh] overflow-y-auto"><div class="sticky top-0 bg-white p-5 border-b flex justify-between items-center"><h2 id="day-summary-title" class="text-lg font-bold">%s</h2><a class="link" href="/calendar" aria-label="Close">Close</a></div><div class="p-5 space-y-5">`, esc(formatLongDate(selectedDate)))
+		for _, session := range selectedSessions {
+			fmt.Fprintf(&b, `<section><div class="flex justify-between gap-3"><h3 class="font-semibold">%s</h3><a class="link text-sm" href="/sessions/%d">Go to</a></div>`, esc(session.WorkoutName), session.ID)
+			for _, exercise := range session.Exercises {
+				fmt.Fprintf(&b, `<div class="mt-3 border-t-2 border-cyan-400 pt-2"><strong class="text-sm uppercase">%s</strong><ol class="mt-1 space-y-1">`, esc(exercise.Name))
+				for _, set := range exercise.Sets {
+					fmt.Fprintf(&b, `<li class="grid grid-cols-2 text-slate-700"><span><b>%g</b> kg</span><span><b>%d</b> reps</span></li>`, set.WeightKg, set.Reps)
+				}
+				b.WriteString(`</ol></div>`)
+			}
+			b.WriteString(`</section>`)
 		}
-		fmt.Fprintf(&b, `<a href="#day-%s" class="border rounded-lg p-2 min-h-14 %s"><span>%d</span>`, key, style, d.Day())
-		if n > 0 {
-			fmt.Fprintf(&b, `<span class="block text-xs text-indigo-700">%d session(s)</span>`, n)
+		if len(selectedSessions) == 0 {
+			b.WriteString(`<p class="text-slate-500">No session was logged on this date.</p>`)
 		}
-		b.WriteString("</a>")
+		b.WriteString(`</div></section></div>`)
 	}
-	b.WriteString("</div><section class='mt-6 space-y-4'><h2 class='text-xl font-bold'>Logged sessions</h2>")
-	for _, s := range logs {
-		fmt.Fprintf(&b, `<a id="day-%s" href="/sessions/%d" class="card block hover:border-indigo-400"><strong>%s</strong> · %s <span class="link">View →</span></a>`, s.Date, s.ID, esc(s.WorkoutName), s.Date)
-	}
-	if len(logs) == 0 {
-		b.WriteString("<p class='text-slate-500'>No sessions this month.</p>")
-	}
-	b.WriteString("</section>")
 	h.render(w, r, "Calendar", template.HTML(b.String()))
+}
+
+func writeCalendarMonth(b *strings.Builder, month time.Time, byDate map[string][]model.Session, selectedDate string) {
+	fmt.Fprintf(b, `<section id="month-%s"><h2 class="text-center font-bold uppercase tracking-wide mb-3">%s</h2><div class="grid grid-cols-7 text-center text-[11px] font-semibold text-slate-500 mb-2">`, month.Format("2006-01"), month.Format("January 2006"))
+	for _, weekday := range []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"} {
+		fmt.Fprintf(b, `<span>%s</span>`, weekday)
+	}
+	b.WriteString(`</div><div class="grid grid-cols-7 gap-y-2 text-center">`)
+	for blank := 0; blank < int(month.Weekday()); blank++ {
+		b.WriteString(`<span></span>`)
+	}
+	for day := month; day.Month() == month.Month(); day = day.AddDate(0, 0, 1) {
+		date := day.Format("2006-01-02")
+		sessions := byDate[date]
+		active := ""
+		if date == selectedDate {
+			active = "bg-cyan-500 text-white rounded-full"
+		}
+		fmt.Fprintf(b, `<a href="/calendar?date=%s" class="min-h-11 py-1 flex flex-col items-center justify-center %s" aria-label="%s%s"><span>%d</span>`, date, active, esc(formatLongDate(date)), map[bool]string{true: ", logged workout"}[len(sessions) > 0], day.Day())
+		if len(sessions) > 0 {
+			b.WriteString(`<span class="flex gap-0.5 mt-1" aria-hidden="true">`)
+			for index := 0; index < len(sessions) && index < 4; index++ {
+				colors := []string{"bg-cyan-500", "bg-violet-500", "bg-amber-500", "bg-rose-500"}
+				fmt.Fprintf(b, `<i class="w-1.5 h-1.5 rounded-full %s"></i>`, colors[index])
+			}
+			b.WriteString(`</span>`)
+		}
+		b.WriteString(`</a>`)
+	}
+	b.WriteString(`</div></section>`)
+}
+
+func formatLongDate(date string) string {
+	parsed, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return date
+	}
+	return parsed.Format("Monday, January 2, 2006")
 }
 func (h *Handler) exerciseHistory(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
@@ -346,20 +387,21 @@ func (h *Handler) exerciseHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<a href="/calendar" class="link">← Calendar</a><h1 class="text-2xl font-bold mt-4">%s history</h1>`, esc(name))
+	fmt.Fprintf(&b, `<a href="/calendar" class="link">← Calendar</a><h1 class="text-2xl font-bold mt-4">%s</h1><p class="text-slate-500 mt-1">History</p><div class="mt-5 space-y-6">`, esc(name))
 	if len(sessions) == 0 {
-		b.WriteString(`<p class="text-slate-500 mt-4">No logged sets yet.</p>`)
+		b.WriteString(`<p class="text-slate-500">No logged sets yet.</p>`)
 	}
 	for _, session := range sessions {
 		if len(session.Exercises) == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, `<article class="card mt-4"><div class="flex justify-between gap-3"><h2 class="font-semibold">%s</h2><a class="link text-sm" href="/sessions/%d">View session</a></div><ol class="mt-3 space-y-1 text-slate-600">`, esc(session.Date), session.ID)
+		fmt.Fprintf(&b, `<section><div class="flex justify-between items-center border-b-2 border-cyan-400 pb-1"><h2 class="font-bold uppercase">%s</h2><a class="link text-sm" href="/sessions/%d">Session</a></div><ol class="pt-2 space-y-2">`, esc(formatLongDate(session.Date)), session.ID)
 		for _, set := range session.Exercises[0].Sets {
-			fmt.Fprintf(&b, `<li>Set %d — %g kg × %d reps</li>`, set.Position+1, set.WeightKg, set.Reps)
+			fmt.Fprintf(&b, `<li class="grid grid-cols-2 text-lg"><span><b>%g</b> <span class="text-sm text-slate-500">kg</span></span><span><b>%d</b> <span class="text-sm text-slate-500">reps</span></span></li>`, set.WeightKg, set.Reps)
 		}
-		b.WriteString(`</ol></article>`)
+		b.WriteString(`</ol></section>`)
 	}
+	b.WriteString(`</div>`)
 	h.render(w, r, "Exercise history", template.HTML(b.String()))
 }
 
