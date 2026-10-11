@@ -1,6 +1,6 @@
 FROM golang:1.23-bookworm AS build
 WORKDIR /src
-COPY go.mod go.sum ./
+COPY go.mod ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 go build -trimpath -o /gym-server .
