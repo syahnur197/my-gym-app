@@ -22,6 +22,7 @@ func Open(path string) (*gorm.DB, error) {
 		return nil, err
 	}
 	if err := db.AutoMigrate(
+		&model.Exercise{},
 		&model.Workout{},
 		&model.WorkoutExercise{},
 		&model.Session{},

@@ -34,7 +34,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer sqlDB.Close()
-	svc := service.New(repository.NewWorkout(db), repository.NewSession(db))
+	svc := service.New(repository.NewExercise(db), repository.NewWorkout(db), repository.NewSession(db))
 	if err := svc.Seed(context.Background()); err != nil {
 		log.Fatal(err)
 	}

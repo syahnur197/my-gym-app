@@ -10,6 +10,13 @@ import (
 
 var ErrNotFound = errors.New("record not found")
 
+type ExerciseRepository interface {
+	List(context.Context) ([]model.Exercise, error)
+	Find(context.Context, uint) (model.Exercise, error)
+	Save(context.Context, *model.Exercise) error
+	Delete(context.Context, uint) error
+}
+
 type WorkoutRepository interface {
 	List(context.Context) ([]model.Workout, error)
 	Find(context.Context, uint) (model.Workout, error)
@@ -23,11 +30,63 @@ type SessionRepository interface {
 	HistoryForExercise(context.Context, string) ([]model.Session, error)
 	Create(context.Context, *model.Session) error
 }
+type GormExerciseRepository struct{ db *gorm.DB }
 type GormWorkoutRepository struct{ db *gorm.DB }
 type GormSessionRepository struct{ db *gorm.DB }
 
-func NewWorkout(db *gorm.DB) WorkoutRepository { return &GormWorkoutRepository{db} }
-func NewSession(db *gorm.DB) SessionRepository { return &GormSessionRepository{db} }
+func NewExercise(db *gorm.DB) ExerciseRepository { return &GormExerciseRepository{db} }
+func NewWorkout(db *gorm.DB) WorkoutRepository   { return &GormWorkoutRepository{db} }
+func NewSession(db *gorm.DB) SessionRepository   { return &GormSessionRepository{db} }
+
+func (r *GormExerciseRepository) List(ctx context.Context) ([]model.Exercise, error) {
+	var out []model.Exercise
+	err := r.db.WithContext(ctx).Order("name COLLATE NOCASE ASC").Find(&out).Error
+	if out == nil {
+		out = []model.Exercise{}
+	}
+	return out, err
+}
+
+func (r *GormExerciseRepository) Find(ctx context.Context, id uint) (model.Exercise, error) {
+	var exercise model.Exercise
+	err := r.db.WithContext(ctx).First(&exercise, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return exercise, ErrNotFound
+	}
+	return exercise, err
+}
+
+func (r *GormExerciseRepository) Save(ctx context.Context, exercise *model.Exercise) error {
+	if exercise.ID == 0 {
+		return r.db.WithContext(ctx).Create(exercise).Error
+	}
+	result := r.db.WithContext(ctx).Model(&model.Exercise{}).Where("id = ?", exercise.ID).Updates(map[string]any{"name": exercise.Name, "notes": exercise.Notes})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *GormExerciseRepository) Delete(ctx context.Context, id uint) error {
+	var references int64
+	if err := r.db.WithContext(ctx).Model(&model.WorkoutExercise{}).Where("exercise_id = ?", id).Count(&references).Error; err != nil {
+		return err
+	}
+	if references > 0 {
+		return errors.New("exercise is used by a workout template")
+	}
+	result := r.db.WithContext(ctx).Delete(&model.Exercise{}, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
 func (r *GormWorkoutRepository) Count(ctx context.Context) (int64, error) {
 	var n int64
 	err := r.db.WithContext(ctx).Model(&model.Workout{}).Count(&n).Error

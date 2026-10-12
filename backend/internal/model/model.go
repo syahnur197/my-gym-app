@@ -2,6 +2,15 @@ package model
 
 import "time"
 
+// Exercise is the reusable personal exercise library. Workouts and historical
+// sessions retain their own names so library edits never rewrite history.
+type Exercise struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"uniqueIndex;not null" json:"name"`
+	Notes     string    `json:"notes"`
+	CreatedAt time.Time `json:"-"`
+}
+
 // Workout is an editable template: it contains exercise names, not prescriptions.
 type Workout struct {
 	ID        uint              `gorm:"primaryKey" json:"id"`
@@ -10,10 +19,13 @@ type Workout struct {
 }
 
 type WorkoutExercise struct {
-	ID        uint   `gorm:"primaryKey" json:"-"`
-	WorkoutID uint   `gorm:"index;not null" json:"-"`
-	Position  int    `gorm:"not null" json:"-"`
-	Name      string `gorm:"not null" json:"name"`
+	ID         uint `gorm:"primaryKey" json:"-"`
+	WorkoutID  uint `gorm:"index;not null" json:"-"`
+	ExerciseID uint `gorm:"index;not null;default:0" json:"exerciseId"`
+	Position   int  `gorm:"not null" json:"-"`
+	// Name is kept as a display snapshot for legacy rows and fast template reads.
+	// Service validation always rewrites it from the selected Exercise entity.
+	Name string `gorm:"not null" json:"name"`
 }
 
 // Session is an immutable record of a completed workout on a specific date.

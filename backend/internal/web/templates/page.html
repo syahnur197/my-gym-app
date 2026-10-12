@@ -1,0 +1,96 @@
+{{define "page"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#222222">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg">
+  <title>{{.Title}} · My Gym</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <style type="text/tailwindcss">
+    @layer components {
+      .btn { @apply inline-flex items-center justify-center rounded-md bg-[#3498db] text-white px-4 py-3 font-bold hover:bg-[#2980b9]; }
+      .btn-secondary { @apply inline-flex items-center justify-center rounded-md bg-[#eaeaea] text-[#333] px-4 py-3 font-medium hover:bg-[#ddd]; }
+      .card { @apply bg-white rounded-md border border-[#d7d7d7] p-4 shadow-sm; }
+      .field { @apply mt-1 block w-full border border-[#cfcfcf] rounded-sm px-3 py-3 bg-white; }
+      .link { @apply text-[#3498db] font-bold; }
+      .stepper { @apply h-10 bg-slate-200 text-3xl leading-none text-white; }
+      .track-value { @apply w-full border-b border-slate-300 text-center text-3xl font-bold py-1 bg-transparent; }
+      .save-set { @apply bg-emerald-400 text-white font-bold py-3; }
+      .clear-set { @apply bg-sky-500 text-white font-bold py-3; }
+      .nav-arrow { @apply text-cyan-500 text-4xl px-4 disabled:text-slate-300; }
+      .finish-workout { @apply bg-emerald-500 text-white font-bold rounded px-4 py-2; }
+    }
+  </style>
+  <script>
+    function editor(initial, library) {
+      return {
+        library,
+        exercises: initial.map((e, i) => ({exerciseId: e.exerciseId, query: e.name, key: i, open: false})),
+        nextKey: initial.length,
+        add() { this.exercises.push({exerciseId: '', query: '', key: this.nextKey++, open: true}) },
+        filtered(query) {
+          const needle = query.trim().toLowerCase();
+          return this.library.filter(option => !needle || option.name.toLowerCase().includes(needle));
+        },
+        choose(entry, option) { entry.exerciseId = option.id; entry.query = option.name; entry.open = false; }
+      }
+    }
+    function workoutLogger(initial) {
+      let key = 0;
+      return {
+        active: 0, weight: 0, reps: 0, selectedSet: -1,
+        exercises: initial.map(e => ({name: e.name, key: key++, sets: []})),
+        save(exercise) {
+          if (this.selectedSet >= 0) {
+            exercise.sets[this.selectedSet].weightKg = this.weight;
+            exercise.sets[this.selectedSet].reps = this.reps;
+            this.selectedSet = -1;
+          } else {
+            exercise.sets.push({key: key++, weightKg: this.weight, reps: this.reps});
+          }
+        },
+        clear() { this.weight = 0; this.reps = 0; this.selectedSet = -1 },
+        select(exercise, index) { this.selectedSet = index; this.weight = exercise.sets[index].weightKg; this.reps = exercise.sets[index].reps },
+        previous() { if (this.active > 0) { this.active--; this.clear() } },
+        next() { if (this.active < this.exercises.length - 1) { this.active++; this.clear() } }
+      }
+    }
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'))
+    }
+  </script>
+</head>
+<body class="bg-[#f3f3f3] min-h-screen text-[#333]">
+  {{if ne .Title "Log workout"}}
+  <header class="bg-[#222] border-b-4 border-[#3498db]">
+    <nav class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+      <a href="/workouts" class="font-bold text-xl text-white tracking-tight">My Gym</a>
+      {{if .LoggedIn}}
+      <div class="hidden sm:flex items-center gap-5">
+        <a href="/workouts" class="text-white text-sm font-bold">Workouts</a>
+        <a href="/calendar" class="text-white text-sm font-bold">Calendar</a>
+        <a href="/exercises" class="text-white text-sm font-bold">Exercises</a>
+      </div>
+      <form method="post" action="/logout">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <button class="text-xs text-slate-400 hover:text-white">Sign out</button>
+      </form>
+      {{end}}
+    </nav>
+  </header>
+  {{end}}
+  <main class="max-w-4xl mx-auto p-4 pb-24 md:p-8">{{.Body}}</main>
+  {{if and .LoggedIn (ne .Title "Log workout")}}
+  <nav class="sm:hidden fixed z-40 inset-x-0 bottom-0 bg-[#222] border-t-2 border-[#3498db] grid grid-cols-3 pb-[env(safe-area-inset-bottom)]">
+    <a href="/workouts" class="py-3 text-center text-xs font-bold text-white"><span class="block text-base leading-4">▤</span>Workouts</a>
+    <a href="/calendar" class="py-3 text-center text-xs font-bold text-white"><span class="block text-base leading-4">□</span>Calendar</a>
+    <a href="/exercises" class="py-3 text-center text-xs font-bold text-white"><span class="block text-base leading-4">＋</span>Exercises</a>
+  </nav>
+  {{end}}
+</body>
+</html>
+{{end}}

@@ -22,8 +22,9 @@ go run .
 Open **http://localhost:8080** and sign in. A C compiler is needed for the GORM SQLite driver.
 
 ## Features
-- Workout templates contain ordered exercises only—no prescribed sets, reps or weights.
-- Edit workout templates and log a workout on any date.
+- A reusable exercise library feeds ordered workout templates; templates contain no prescribed sets, reps or weights.
+- Copy a template into an independent editable workout plan.
+- Tap any calendar date, choose a template, and log that workout on the selected date.
 - Record each completed set independently, including its own weight and reps.
 - A calendar exposes completed sessions by date.
 - Exercise history retains completed sets grouped by session date.
@@ -34,6 +35,16 @@ Use HTTPS for remote access. Set `COOKIE_SECURE=true` in production. Do not comm
 
 ## PWA details
 The manifest and service worker make the app installable on supported browsers. Logging requires network access. The service worker caches only the manifest and icon; it does not offer offline data entry or synchronization. Alpine and Tailwind are loaded from CDNs, so an internet connection is required for first load.
+
+## Deploy with Docker Compose
+```sh
+cd backend
+cp .env.example .env
+# Set APP_USERNAME, APP_PASSWORD, JWT_SECRET and COOKIE_SECURE=true behind HTTPS.
+docker compose up -d --build
+```
+
+The named `gym-data` volume persists the SQLite database. The supplied compose file includes Cloudflare Tunnel; set `TUNNEL_TOKEN` or remove the `cloudflared` service when using another proxy.
 
 ## Notes
 - Paired dumbbell weights are **combined kg**; one-arm exercise weights refer to one dumbbell.
